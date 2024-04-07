@@ -90,8 +90,6 @@ class Block(nn.Module):
         attn_drop=0.,
         act_layer=nn.GELU,
         norm_layer=nn.LayerNorm,
-        grid_size=None,
-        grid_depth=None,
     ):
         super().__init__()
         self.norm1 = norm_layer(dim)

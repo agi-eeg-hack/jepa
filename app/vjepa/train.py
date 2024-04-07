@@ -383,6 +383,7 @@ def main(args, resume_preempt=False):
                 # Put each clip on the GPU and concatenate along batch
                 # dimension
                 clips = torch.cat([u.to(device, non_blocking=True) for u in udata[0]], dim=0)
+                coords = torch.cat([u.to(device, non_blocking=True) for u in udata[1]], dim=0)
 
                 # Put each mask-enc/mask-pred pair on the GPU and reuse the
                 # same mask pair for each clip
@@ -395,8 +396,8 @@ def main(args, resume_preempt=False):
                     _masks_enc.append(_me)
                     _masks_pred.append(_mp)
 
-                return (clips, _masks_enc, _masks_pred)
-            clips, masks_enc, masks_pred = load_clips()
+                return (clips, coords, _masks_enc, _masks_pred)
+            clips, coords, masks_enc, masks_pred = load_clips()
 
             for _i, m in enumerate(mask_meters):
                 m.update(masks_enc[_i][0].size(-1))
@@ -406,25 +407,25 @@ def main(args, resume_preempt=False):
                 _new_wd = wd_scheduler.step()
                 # --
 
-                def forward_target(c):
+                def forward_target(c, coords):
                     """
                     Returns list of tensors of shape [B, N, D], one for each
                     mask-pred.
                     """
                     with torch.no_grad():
-                        h = target_encoder(c)
+                        h = target_encoder(c, coords)
                         h = F.layer_norm(h, (h.size(-1),))  # normalize over feature-dim  [B, N, D]
                         # -- create targets (masked regions of h)
                         h = apply_masks(h, masks_pred, concat=False)
                         return h
 
-                def forward_context(c, h):
+                def forward_context(c, h, coords):
                     """
                     Returns list of tensors of shape [B, N, D], one for each
                     mask-pred.
                     """
-                    z = encoder(c, masks_enc)
-                    z = predictor(z, h, masks_enc, masks_pred)
+                    z = encoder(c, coords, masks_enc)
+                    z = predictor(z, h, masks_enc, masks_pred, coords)
                     return z
 
                 def loss_fn(z, h):
@@ -441,8 +442,8 @@ def main(args, resume_preempt=False):
                 # Step 1. Forward
                 loss_jepa, loss_reg = 0., 0.
                 with torch.cuda.amp.autocast(dtype=dtype, enabled=mixed_precision):
-                    h = forward_target(clips)
-                    z = forward_context(clips, h)
+                    h = forward_target(clips, coords)
+                    z = forward_context(clips, h, coords)
                     loss_jepa = loss_fn(z, h)  # jepa prediction loss
                     pstd_z = reg_fn(z)  # predictor variance across patches
                     loss_reg += torch.mean(F.relu(1.-pstd_z))

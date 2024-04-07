@@ -12,7 +12,7 @@ import torch
 import torch.nn as nn
 
 from src.models.utils.modules import Block
-from src.models.utils.pos_embs import get_2d_sincos_pos_embed, get_3d_sincos_pos_embed
+from src.models.utils.pos_embs import get_eeg_sincos_pos_embed
 from src.utils.tensors import (
     trunc_normal_,
     repeat_interleave_batch
@@ -24,7 +24,7 @@ class VisionTransformerPredictor(nn.Module):
     """ Vision Transformer """
     def __init__(
         self,
-        img_size=224,
+        img_size=64,
         patch_size=16,
         num_frames=1,
         tubelet_size=2,
@@ -65,27 +65,14 @@ class VisionTransformerPredictor(nn.Module):
         # --
         self.num_frames = num_frames
         self.tubelet_size = tubelet_size
-        self.is_video = num_frames > 1
 
-        grid_size = self.input_size // self.patch_size
-        grid_depth = self.num_frames // self.tubelet_size
+        self.num_patches = (num_frames // (patch_size * patch_size * tubelet_size)) * img_size
 
-        if self.is_video:
-            self.num_patches = num_patches = (
-                (num_frames // tubelet_size)
-                * (img_size // patch_size)
-                * (img_size // patch_size)
-            )
-        else:
-            self.num_patches = num_patches = (
-                (img_size // patch_size)
-                * (img_size // patch_size)
-            )
         # Position embedding
         self.uniform_power = uniform_power
         self.predictor_pos_embed = None
         self.predictor_pos_embed = nn.Parameter(
-            torch.zeros(1, num_patches, predictor_embed_dim),
+            torch.zeros(1, self.num_patches, predictor_embed_dim),
             requires_grad=False)
 
         # Attention Blocks
@@ -99,8 +86,6 @@ class VisionTransformerPredictor(nn.Module):
                 drop=drop_rate,
                 act_layer=nn.GELU,
                 attn_drop=attn_drop_rate,
-                grid_size=grid_size,
-                grid_depth=grid_depth,
                 norm_layer=norm_layer)
             for i in range(depth)])
 
@@ -109,8 +94,6 @@ class VisionTransformerPredictor(nn.Module):
         self.predictor_proj = nn.Linear(predictor_embed_dim, embed_dim, bias=True)
 
         # ------ initialize weights
-        if self.predictor_pos_embed is not None:
-            self._init_pos_embed(self.predictor_pos_embed.data)  # sincos pos-embed
         self.init_std = init_std
         if not zero_init_mask_tokens:
             for mt in self.mask_tokens:
@@ -118,21 +101,10 @@ class VisionTransformerPredictor(nn.Module):
         self.apply(self._init_weights)
         self._rescale_blocks()
 
-    def _init_pos_embed(self, pos_embed):
-        embed_dim = pos_embed.size(-1)
-        grid_size = self.input_size // self.patch_size
-        if self.is_video:
-            grid_depth = self.num_frames // self.tubelet_size
-            sincos = get_3d_sincos_pos_embed(
-                embed_dim,
-                grid_size,
-                grid_depth,
-                cls_token=False,
-                uniform_power=self.uniform_power
-            )
-        else:
-            sincos = get_2d_sincos_pos_embed(embed_dim, grid_size, cls_token=False)
-        pos_embed.copy_(torch.from_numpy(sincos).float().unsqueeze(0))
+    def build_pos_encoding(self, x, coords, pos_embed):
+        grid_size = x.shape[2] 
+        sincos = get_eeg_sincos_pos_embed(self.embed_dim, coords, grid_size, cls_token=False)
+        pos_embed.copy_(sincos.float())
 
     def _init_weights(self, m):
         if isinstance(m, nn.Linear):
@@ -171,7 +143,7 @@ class VisionTransformerPredictor(nn.Module):
         x = alpha**0.5 * x + (1.-alpha)**0.5 * torch.randn(x.shape, device=x.device)
         return x
 
-    def forward(self, ctxt, tgt, masks_ctxt, masks_tgt, mask_index=1):
+    def forward(self, ctxt, tgt, masks_ctxt, masks_tgt, coords, mask_index=1):
         """
         :param ctxt: context tokens
         :param tgt: target tokens
@@ -195,8 +167,11 @@ class VisionTransformerPredictor(nn.Module):
         _, N_ctxt, D = x.shape
 
         # Add positional embedding to ctxt tokens
-        if self.predictor_pos_embed is not None:
-            ctxt_pos_embed = self.predictor_pos_embed.repeat(B, 1, 1)
+        pos_embed = self.predictor_pos_embed
+
+        if pos_embed is not None:
+            self.build_pos_encoding(x, coords, pos_embed)
+            ctxt_pos_embed = pos_embed.repeat(B, 1, 1)
             x += apply_masks(ctxt_pos_embed, masks_ctxt)
 
         # Map target tokens to predictor dimensions & add noise (fwd diffusion)
@@ -210,11 +185,11 @@ class VisionTransformerPredictor(nn.Module):
             pred_tokens = apply_masks(pred_tokens, masks_tgt)
 
         # Add positional embedding to target tokens
-        if self.predictor_pos_embed is not None:
-            pos_embs = self.predictor_pos_embed.repeat(B, 1, 1)
-            pos_embs = apply_masks(pos_embs, masks_tgt)
-            pos_embs = repeat_interleave_batch(pos_embs, B, repeat=len(masks_ctxt))
-            pred_tokens += pos_embs
+        if pos_embed is not None:
+            tgt_pos_embed = pos_embed.repeat(B, 1, 1)
+            tgt_pos_embed = apply_masks(tgt_pos_embed, masks_tgt)
+            tgt_pos_embed = repeat_interleave_batch(tgt_pos_embed, B, repeat=len(masks_ctxt))
+            pred_tokens += tgt_pos_embed
 
         # Concatenate context & target tokens
         x = x.repeat(len(masks_tgt), 1, 1)
