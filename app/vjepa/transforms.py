@@ -17,8 +17,6 @@ def make_transforms(
     random_resize_aspect_ratio=(3/4, 4/3),
     random_resize_scale=(0.3, 1.0),
     reprob=0.0,
-    auto_augment=False,
-    motion_shift=False,
     crop_size=224,
     normalize=((0.485, 0.456, 0.406),
                (0.229, 0.224, 0.225))
@@ -29,8 +27,6 @@ def make_transforms(
         random_resize_aspect_ratio=random_resize_aspect_ratio,
         random_resize_scale=random_resize_scale,
         reprob=reprob,
-        auto_augment=auto_augment,
-        motion_shift=motion_shift,
         crop_size=crop_size,
         normalize=normalize,
     )
@@ -45,8 +41,6 @@ class VideoTransform(object):
         random_resize_aspect_ratio=(3/4, 4/3),
         random_resize_scale=(0.3, 1.0),
         reprob=0.0,
-        auto_augment=False,
-        motion_shift=False,
         crop_size=224,
         normalize=((0.485, 0.456, 0.406),
                    (0.229, 0.224, 0.225))
@@ -55,24 +49,14 @@ class VideoTransform(object):
         self.random_horizontal_flip = random_horizontal_flip
         self.random_resize_aspect_ratio = random_resize_aspect_ratio
         self.random_resize_scale = random_resize_scale
-        self.auto_augment = auto_augment
-        self.motion_shift = motion_shift
         self.crop_size = crop_size
         self.mean = torch.tensor(normalize[0], dtype=torch.float32)
         self.std = torch.tensor(normalize[1], dtype=torch.float32)
-        if not self.auto_augment:
-            # Without auto-augment, PIL and tensor conversions simply scale uint8 space by 255.
-            self.mean *= 255.
-            self.std *= 255.
+        # Without auto-augment, PIL and tensor conversions simply scale uint8 space by 255.
+        self.mean *= 255.
+        self.std *= 255.
 
-        self.autoaug_transform = video_transforms.create_random_augment(
-            input_size=(crop_size, crop_size),
-            auto_augment='rand-m7-n4-mstd0.5-inc1',
-            interpolation='bicubic',
-        )
-
-        self.spatial_transform = video_transforms.random_resized_crop_with_shift \
-            if motion_shift else video_transforms.random_resized_crop
+        self.spatial_transform = video_transforms.random_resized_crop
 
         self.reprob = reprob
         self.erase_transform = RandomErasing(
@@ -85,14 +69,7 @@ class VideoTransform(object):
 
     def __call__(self, buffer):
 
-        if self.auto_augment:
-            buffer = [transforms.ToPILImage()(frame) for frame in buffer]
-            buffer = self.autoaug_transform(buffer)
-            buffer = [transforms.ToTensor()(img) for img in buffer]
-            buffer = torch.stack(buffer)  # T C H W
-            buffer = buffer.permute(0, 2, 3, 1)  # T H W C
-        else:
-            buffer = torch.tensor(buffer, dtype=torch.float32)
+        buffer = torch.tensor(buffer, dtype=torch.float32)
 
         buffer = buffer.permute(3, 0, 1, 2)  # T H W C -> C T H W
 

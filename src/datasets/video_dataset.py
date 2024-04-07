@@ -32,7 +32,6 @@ def make_videodataset(
     num_clips=1,
     random_clip_sampling=True,
     allow_clip_overlap=False,
-    filter_short_videos=False,
     filter_long_videos=int(10**9),
     transform=None,
     shared_transform=None,
@@ -54,7 +53,6 @@ def make_videodataset(
         num_clips=num_clips,
         random_clip_sampling=random_clip_sampling,
         allow_clip_overlap=allow_clip_overlap,
-        filter_short_videos=filter_short_videos,
         filter_long_videos=filter_long_videos,
         duration=duration,
         shared_transform=shared_transform,
@@ -102,7 +100,6 @@ class VideoDataset(torch.utils.data.Dataset):
         shared_transform=None,
         random_clip_sampling=True,
         allow_clip_overlap=False,
-        filter_short_videos=False,
         filter_long_videos=int(10**9),
         duration=None,  # duration in seconds
     ):
@@ -115,7 +112,6 @@ class VideoDataset(torch.utils.data.Dataset):
         self.shared_transform = shared_transform
         self.random_clip_sampling = random_clip_sampling
         self.allow_clip_overlap = allow_clip_overlap
-        self.filter_short_videos = filter_short_videos
         self.filter_long_videos = filter_long_videos
         self.duration = duration
 
@@ -213,10 +209,6 @@ class VideoDataset(torch.utils.data.Dataset):
             except Exception as e:
                 warnings.warn(e)
         clip_len = int(fpc * fstp)
-
-        if self.filter_short_videos and len(vr) < clip_len:
-            warnings.warn(f'skipping video of length {len(vr)}')
-            return [], None
 
         vr.seek(0)  # Go to start of video before sampling frames
 

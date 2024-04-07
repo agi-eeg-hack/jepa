@@ -113,22 +113,17 @@ def main(args, resume_preempt=False):
     num_frames = cfgs_data.get('num_frames')
     tubelet_size = cfgs_data.get('tubelet_size')
     sampling_rate = cfgs_data.get('sampling_rate')
-    duration = cfgs_data.get('clip_duration', None)
     crop_size = cfgs_data.get('crop_size', 224)
     patch_size = cfgs_data.get('patch_size')
     pin_mem = cfgs_data.get('pin_mem', False)
     num_workers = cfgs_data.get('num_workers', 1)
-    filter_short_videos = cfgs_data.get('filter_short_videos', False)
-    decode_one_clip = cfgs_data.get('decode_one_clip', True)
     log_resource_util_data = cfgs_data.get('log_resource_utilization', False)
 
     # -- DATA AUGS
     cfgs_data_aug = args.get('data_aug')
     ar_range = cfgs_data_aug.get('random_resize_aspect_ratio', [3/4, 4/3])
     rr_scale = cfgs_data_aug.get('random_resize_scale', [0.3, 1.0])
-    motion_shift = cfgs_data_aug.get('motion_shift', False)
     reprob = cfgs_data_aug.get('reprob', 0.)
-    use_aa = cfgs_data_aug.get('auto_augment', False)
 
     # -- LOSS
     cfgs_loss = args.get('loss')
@@ -243,8 +238,6 @@ def main(args, resume_preempt=False):
         random_resize_aspect_ratio=ar_range,
         random_resize_scale=rr_scale,
         reprob=reprob,
-        auto_augment=use_aa,
-        motion_shift=motion_shift,
         crop_size=crop_size)
 
     # -- init data-loaders/samplers
@@ -256,9 +249,6 @@ def main(args, resume_preempt=False):
          training=True,
          clip_len=num_frames,
          frame_sample_rate=sampling_rate,
-         filter_short_videos=filter_short_videos,
-         decode_one_clip=decode_one_clip,
-         duration=duration,
          num_clips=num_clips,
          transform=transform,
          datasets_weights=datasets_weights,
