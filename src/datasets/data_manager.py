@@ -80,5 +80,27 @@ def init_data(
             rank=rank,
             drop_last=drop_last,
             log_dir=log_dir)
+    
+    else:
+        from src.datasets.eeg_dataset import make_eegdataset
+        _, data_loader, dist_sampler = make_eegdataset(
+            data_paths=root_path,
+            batch_size=batch_size,
+            frames_per_clip=clip_len,
+            frame_step=frame_sample_rate,
+            num_clips=num_clips,
+            random_clip_sampling=random_clip_sampling,
+            allow_clip_overlap=allow_clip_overlap,
+            filter_long_videos=filter_long_videos,
+            shared_transform=shared_transform,
+            transform=transform,
+            datasets_weights=datasets_weights,
+            collator=collator,
+            num_workers=num_workers,
+            world_size=world_size,
+            rank=rank,
+            drop_last=drop_last,
+            log_dir=log_dir
+        )
 
     return (data_loader, dist_sampler)
